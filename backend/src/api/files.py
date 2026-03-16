@@ -126,6 +126,20 @@ async def upload(
     )
 
 
+@router.get("/{hash}/scan-status")
+async def get_scan_status(hash: str) -> dict:
+    """Quick check on a file's scan status and tags."""
+    metadata = await get_metadata(hash)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="File not found.")
+    return {
+        "hash": hash,
+        "scan_status": metadata.get("scan_status", "pending"),
+        "tags": metadata.get("tags", []),
+        "description": metadata.get("description", ""),
+    }
+
+
 @router.get("/{hash}", response_model=FileMetadata)
 async def get_file_metadata(
     hash: str,
@@ -243,6 +257,7 @@ async def list_files(
             size_bytes=item["size_bytes"],
             uploaded_at=item["uploaded_at"],
             scan_status=item.get("scan_status", "pending"),
+            tags=item.get("tags", []),
         )
         for item in items
     ]

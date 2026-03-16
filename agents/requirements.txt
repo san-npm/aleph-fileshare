@@ -1,20 +1,17 @@
 # AlephFileShare AI Agents — Dependencies
 # Install: pip install -r requirements.txt
 
-# Aleph Cloud SDK
-aleph-sdk-python==1.1.0
-
-# HTTP client
+# HTTP client (for future API integrations)
 httpx==0.28.1
 
-# Async support
+# Async file I/O
 aiofiles==24.1.0
 
-# Content extraction (Phase 2)
-# python-magic==0.4.27      # MIME detection
-# PyPDF2==3.0.1             # PDF text extraction
-# Pillow==11.0.0            # Image processing
-# pytesseract==0.3.13       # OCR for images
-
-# Environment
+# Environment variables
 python-dotenv==1.0.1
+
+# Aleph Cloud SDK (only needed in aleph mode)
+# aleph-sdk-python==1.1.0
+
+# AI integration (only needed in aleph mode)
+# openai==1.30.0
