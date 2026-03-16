@@ -5,3 +5,26 @@
 body {
   @apply bg-aleph-dark text-white antialiased;
 }
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-600;
+}
+
+/* Selection */
+::selection {
+  @apply bg-aleph-blue/30 text-white;
+}

@@ -16,6 +16,25 @@ export const metadata: Metadata = {
   title: "AlephFileShare — Decentralized File Sharing",
   description:
     "Upload and share files on IPFS via Aleph Cloud. No accounts, no limits, fully decentralized.",
+  icons: {
+    icon: "/favicon.svg",
+  },
+  openGraph: {
+    title: "AlephFileShare — Decentralized File Sharing",
+    description:
+      "Upload and share files on IPFS via Aleph Cloud. No accounts, no limits, fully decentralized.",
+    type: "website",
+    siteName: "AlephFileShare",
+  },
+  twitter: {
+    card: "summary",
+    title: "AlephFileShare — Decentralized File Sharing",
+    description:
+      "Upload and share files on IPFS via Aleph Cloud. No accounts, no limits, fully decentralized.",
+  },
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  ),
 };
 
 export default function RootLayout({
