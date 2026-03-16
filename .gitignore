@@ -37,6 +37,9 @@ out/
 .DS_Store
 Thumbs.db
 
+# Local storage (dev mode)
+local_storage/
+
 # Aleph
 aleph_config.json
 *.squashfs
