@@ -41,6 +41,7 @@ class FileListItem(BaseModel):
     size_bytes: int
     uploaded_at: str
     scan_status: str = "pending"
+    tags: list[str] = Field(default_factory=list)
 
 
 class FileListResponse(BaseModel):

@@ -1,26 +1,99 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { FileListItem, formatBytes } from "@/lib/api";
+import { FileListItem, formatBytes, getScanStatus } from "@/lib/api";
 
 interface FileCardProps {
   file: FileListItem;
   onDelete?: (hash: string) => void;
 }
 
-const SCAN_BADGE: Record<string, { color: string; label: string }> = {
-  clean: { color: "bg-green-900/50 text-green-300 border-green-800/50", label: "Clean" },
-  pending: { color: "bg-yellow-900/50 text-yellow-300 border-yellow-800/50", label: "Pending" },
-  flagged: { color: "bg-red-900/50 text-red-300 border-red-800/50", label: "Flagged" },
+const SCAN_BADGE: Record<string, { color: string; label: string; icon: string }> = {
+  clean: {
+    color: "bg-green-900/50 text-green-300 border-green-800/50",
+    label: "Clean",
+    icon: "✓",
+  },
+  pending: {
+    color: "bg-yellow-900/50 text-yellow-300 border-yellow-800/50 animate-pulse",
+    label: "Scanning...",
+    icon: "⏳",
+  },
+  flagged: {
+    color: "bg-red-900/50 text-red-300 border-red-800/50",
+    label: "Flagged",
+    icon: "⚠",
+  },
+  error: {
+    color: "bg-gray-900/50 text-gray-400 border-gray-700/50",
+    label: "Error",
+    icon: "✗",
+  },
 };
 
 export function FileCard({ file, onDelete }: FileCardProps) {
-  const badge = SCAN_BADGE[file.scan_status] || SCAN_BADGE.pending;
-  const date = new Date(file.uploaded_at).toLocaleDateString();
+  const [scanStatus, setScanStatus] = useState(file.scan_status);
+  const [tags, setTags] = useState<string[]>(file.tags || []);
   const [copied, setCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Auto-refresh scan status every 5 seconds while pending
+  useEffect(() => {
+    if (scanStatus !== "pending") {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
+    intervalRef.current = setInterval(async () => {
+      try {
+        const data = await getScanStatus(file.hash);
+        setScanStatus(data.scan_status);
+        if (data.tags && data.tags.length > 0) {
+          setTags(data.tags);
+        }
+        if (data.scan_status !== "pending" && intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      } catch {
+        // Silently continue polling
+      }
+    }, 5000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [scanStatus, file.hash]);
+
+  // Also poll for tags if scan is clean but tags are empty
+  useEffect(() => {
+    if (scanStatus !== "clean" || tags.length > 0) return;
+
+    const tagInterval = setInterval(async () => {
+      try {
+        const data = await getScanStatus(file.hash);
+        if (data.tags && data.tags.length > 0) {
+          setTags(data.tags);
+          clearInterval(tagInterval);
+        }
+      } catch {
+        // Silently continue
+      }
+    }, 5000);
+
+    return () => clearInterval(tagInterval);
+  }, [scanStatus, tags, file.hash]);
+
+  const badge = SCAN_BADGE[scanStatus] || SCAN_BADGE.pending;
+  const date = new Date(file.uploaded_at).toLocaleDateString();
 
   const copyLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/d/${file.hash}`);
@@ -50,16 +123,30 @@ export function FileCard({ file, onDelete }: FileCardProps) {
         <h3 className="text-white font-medium truncate pr-4 max-w-[70%]" title={file.filename}>
           {file.filename}
         </h3>
-        <span className={`text-xs px-2 py-0.5 rounded-full border ${badge.color}`}>
-          {badge.label}
+        <span className={`text-xs px-2 py-0.5 rounded-full border whitespace-nowrap ${badge.color}`}>
+          {badge.icon} {badge.label}
         </span>
       </div>
 
-      <div className="flex items-center gap-3 text-sm text-gray-400 mb-4">
+      <div className="flex items-center gap-3 text-sm text-gray-400 mb-3">
         <span>{formatBytes(file.size_bytes)}</span>
         <span className="text-gray-600">·</span>
         <span>{date}</span>
       </div>
+
+      {/* Tags */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="text-xs px-2 py-0.5 bg-aleph-blue/10 text-aleph-blue border border-aleph-blue/20 rounded-full"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <Link

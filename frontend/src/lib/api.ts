@@ -43,6 +43,14 @@ export interface FileListItem {
   size_bytes: number;
   uploaded_at: string;
   scan_status: string;
+  tags: string[];
+}
+
+export interface ScanStatusResponse {
+  hash: string;
+  scan_status: string;
+  tags: string[];
+  description: string;
 }
 
 export interface FileListResponse {
@@ -102,6 +110,12 @@ export async function uploadFile(
     xhr.onerror = () => reject(new Error("Network error during upload"));
     xhr.send(formData);
   });
+}
+
+export async function getScanStatus(hash: string): Promise<ScanStatusResponse> {
+  const res = await fetch(`${BASE_URL}/files/${hash}/scan-status`);
+  if (!res.ok) throw new Error("Failed to get scan status");
+  return res.json();
 }
 
 export async function getFileMetadata(hash: string): Promise<FileMetadata> {

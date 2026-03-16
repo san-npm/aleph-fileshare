@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   getFileMetadata,
+  getScanStatus,
   formatBytes,
   FileMetadata,
 } from "@/lib/api";
@@ -27,18 +28,39 @@ function getFileIcon(mimeType: string): string {
   return "📄";
 }
 
+const SCAN_BADGE_STYLES: Record<string, string> = {
+  clean: "bg-green-900/50 text-green-300 border border-green-800/50",
+  pending: "bg-yellow-900/50 text-yellow-300 border border-yellow-800/50 animate-pulse",
+  flagged: "bg-red-900/50 text-red-300 border border-red-800/50",
+  error: "bg-gray-900/50 text-gray-400 border border-gray-700/50",
+};
+
+const SCAN_LABELS: Record<string, string> = {
+  clean: "✓ Clean",
+  pending: "⏳ Scanning...",
+  flagged: "⚠ Flagged",
+  error: "✗ Scan Error",
+};
+
 export default function DownloadPage() {
   const params = useParams();
   const hash = params.hash as string;
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
+  const [scanStatus, setScanStatus] = useState<string>("pending");
+  const [tags, setTags] = useState<string[]>([]);
+  const [description, setDescription] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getFileMetadata(hash);
         setMetadata(data);
+        setScanStatus(data.scan_status);
+        setTags(data.tags || []);
+        setDescription(data.description || "");
       } catch {
         setError("File not found or unavailable.");
       } finally {
@@ -47,6 +69,56 @@ export default function DownloadPage() {
     }
     if (hash) load();
   }, [hash]);
+
+  // Auto-refresh scan status while pending
+  useEffect(() => {
+    if (scanStatus !== "pending") {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
+    intervalRef.current = setInterval(async () => {
+      try {
+        const data = await getScanStatus(hash);
+        setScanStatus(data.scan_status);
+        if (data.tags && data.tags.length > 0) setTags(data.tags);
+        if (data.description) setDescription(data.description);
+        if (data.scan_status !== "pending" && intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      } catch {
+        // Continue polling
+      }
+    }, 5000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [scanStatus, hash]);
+
+  // Poll for tags after scan completes
+  useEffect(() => {
+    if (scanStatus !== "clean" || tags.length > 0) return;
+
+    const tagInterval = setInterval(async () => {
+      try {
+        const data = await getScanStatus(hash);
+        if (data.tags && data.tags.length > 0) {
+          setTags(data.tags);
+          if (data.description) setDescription(data.description);
+          clearInterval(tagInterval);
+        }
+      } catch {
+        // Continue
+      }
+    }, 5000);
+
+    return () => clearInterval(tagInterval);
+  }, [scanStatus, tags, hash]);
 
   if (isLoading) {
     return (
@@ -84,6 +156,8 @@ export default function DownloadPage() {
   const downloadUrl = `${config.apiUrl}/files/${hash}/download`;
   const date = new Date(metadata.uploaded_at).toLocaleString();
   const icon = getFileIcon(metadata.mime_type);
+  const badgeStyle = SCAN_BADGE_STYLES[scanStatus] || SCAN_BADGE_STYLES.pending;
+  const badgeLabel = SCAN_LABELS[scanStatus] || SCAN_LABELS.pending;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
@@ -130,30 +204,22 @@ export default function DownloadPage() {
                 {metadata.uploader.slice(0, 6)}...{metadata.uploader.slice(-4)}
               </span>
             </div>
-            {metadata.scan_status !== "pending" && (
-              <div className="flex justify-between py-2 border-b border-gray-800/50">
-                <span className="text-gray-400">Scan Status</span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    metadata.scan_status === "clean"
-                      ? "bg-green-900 text-green-300"
-                      : metadata.scan_status === "flagged"
-                      ? "bg-red-900 text-red-300"
-                      : "bg-yellow-900 text-yellow-300"
-                  }`}
-                >
-                  {metadata.scan_status}
-                </span>
-              </div>
-            )}
-            {metadata.tags.length > 0 && (
-              <div className="flex justify-between py-2 border-b border-gray-800/50">
-                <span className="text-gray-400">Tags</span>
-                <div className="flex gap-1 flex-wrap justify-end">
-                  {metadata.tags.map((tag) => (
+            {/* Always show scan status */}
+            <div className="flex justify-between items-center py-2 border-b border-gray-800/50">
+              <span className="text-gray-400">Scan Status</span>
+              <span className={`text-xs px-2.5 py-1 rounded-full ${badgeStyle}`}>
+                {badgeLabel}
+              </span>
+            </div>
+            {/* Tags */}
+            {tags.length > 0 && (
+              <div className="flex justify-between items-start py-2 border-b border-gray-800/50">
+                <span className="text-gray-400 pt-0.5">Tags</span>
+                <div className="flex gap-1.5 flex-wrap justify-end max-w-[70%]">
+                  {tags.map((tag) => (
                     <span
                       key={tag}
-                      className="text-xs px-2 py-0.5 bg-gray-800 rounded-full text-gray-300"
+                      className="text-xs px-2 py-0.5 bg-aleph-blue/10 text-aleph-blue border border-aleph-blue/20 rounded-full"
                     >
                       {tag}
                     </span>
@@ -161,25 +227,35 @@ export default function DownloadPage() {
                 </div>
               </div>
             )}
-            {metadata.description && (
-              <div className="py-2">
-                <span className="text-gray-400 block mb-1">Description</span>
-                <span className="text-white text-sm">
-                  {metadata.description}
+            {/* AI Description */}
+            {description && (
+              <div className="py-3 border-b border-gray-800/50">
+                <span className="text-gray-400 block mb-2 text-xs uppercase tracking-wide">
+                  AI Description
                 </span>
+                <p className="text-white text-sm leading-relaxed">
+                  {description}
+                </p>
               </div>
             )}
           </div>
 
-          <a
-            href={downloadUrl}
-            className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-aleph-blue hover:bg-aleph-blue/80 text-white rounded-lg font-medium transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Download File
-          </a>
+          {scanStatus === "flagged" ? (
+            <div className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-red-900/30 text-red-300 rounded-lg font-medium border border-red-800/30">
+              <span>⚠</span>
+              <span>This file has been flagged and is unavailable for download</span>
+            </div>
+          ) : (
+            <a
+              href={downloadUrl}
+              className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-aleph-blue hover:bg-aleph-blue/80 text-white rounded-lg font-medium transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download File
+            </a>
+          )}
 
           <div className="mt-4 text-center">
             <Link

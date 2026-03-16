@@ -16,6 +16,7 @@ services:
       - STORAGE_MODE=${STORAGE_MODE:-local}
     volumes:
       - file_storage:/tmp/aleph-fileshare-storage
+      - file_metadata:/tmp/aleph-fileshare-metadata
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -45,8 +46,28 @@ services:
       start_period: 15s
     restart: unless-stopped
 
+  agents:
+    build:
+      context: .
+      dockerfile: agents/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      - STORAGE_MODE=${STORAGE_MODE:-local}
+      - LOCAL_STORAGE_DIR=/tmp/aleph-fileshare-storage
+      - LOCAL_META_FILE=/tmp/aleph-fileshare-metadata/metadata.json
+      - SCANNER_POLL_INTERVAL_SECONDS=${SCANNER_POLL_INTERVAL_SECONDS:-10}
+      - INDEXER_POLL_INTERVAL_SECONDS=${INDEXER_POLL_INTERVAL_SECONDS:-15}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - file_storage:/tmp/aleph-fileshare-storage:ro
+      - file_metadata:/tmp/aleph-fileshare-metadata
+    restart: unless-stopped
+
 volumes:
   file_storage:
+  file_metadata:
 
 networks:
   default:
