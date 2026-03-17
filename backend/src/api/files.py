@@ -255,7 +255,7 @@ async def download(
         if not x_download_password:
             raise HTTPException(status_code=401, detail="Password required.")
         if not bcrypt.checkpw(x_download_password.encode("utf-8"), stored_hash.encode("utf-8")):
-            raise HTTPException(status_code=401, detail="Incorrect password.")
+            raise HTTPException(status_code=401, detail="Invalid password.")
 
     # Check scan status
     if metadata.get("scan_status") == "flagged":
