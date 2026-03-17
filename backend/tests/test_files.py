@@ -45,16 +45,21 @@ def temp_storage(tmp_path):
     storage_dir.mkdir()
     meta_file = tmp_path / "metadata.json"
 
+    access_log_file = tmp_path / "access.jsonl"
+
     with patch.dict(os.environ, {
         "LOCAL_STORAGE_DIR": str(storage_dir),
         "LOCAL_META_FILE": str(meta_file),
+        "LOCAL_ACCESS_LOG": str(access_log_file),
         "STORAGE_MODE": "local",
     }):
         # Also patch the module-level constants
         with patch("src.services.aleph_storage.LOCAL_STORAGE_DIR", storage_dir), \
              patch("src.services.aleph_storage.STORAGE_MODE", "local"), \
              patch("src.services.aleph_aggregates.LOCAL_META_FILE", meta_file), \
-             patch("src.services.aleph_aggregates.STORAGE_MODE", "local"):
+             patch("src.services.aleph_aggregates.STORAGE_MODE", "local"), \
+             patch("src.services.access_log.LOCAL_ACCESS_LOG", access_log_file), \
+             patch("src.services.access_log.STORAGE_MODE", "local"):
             yield storage_dir, meta_file
 
 
@@ -400,3 +405,122 @@ def test_list_files_shows_expiry():
     expiry_files = [f for f in files if f.get("expires_at") is not None]
     assert len(expiry_files) > 0
     assert "is_expired" in expiry_files[0]
+
+
+# --- Phase 3c: Access Log Tests ---
+
+
+def test_access_log_records_upload():
+    """Test that uploading a file creates an access log entry."""
+    file_content = b"access log upload test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("logtest.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert upload_resp.status_code == 201
+    file_hash = upload_resp.json()["hash"]
+
+    # Fetch access log as owner
+    log_resp = client.get(
+        f"/files/{file_hash}/access-log",
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert log_resp.status_code == 200
+    entries = log_resp.json()
+    upload_entries = [e for e in entries if e["action"] == "upload"]
+    assert len(upload_entries) >= 1
+    assert upload_entries[0]["actor"] == MOCK_ADDRESS
+    assert upload_entries[0]["file_hash"] == file_hash
+
+
+def test_access_log_records_view_and_download():
+    """Test that viewing metadata and downloading create log entries."""
+    file_content = b"view and download log test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("vdlog.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # View metadata (creates a "view" entry)
+    client.get(f"/files/{file_hash}")
+
+    # Download (creates a "download" entry)
+    client.get(f"/files/{file_hash}/download")
+
+    log_resp = client.get(
+        f"/files/{file_hash}/access-log",
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert log_resp.status_code == 200
+    entries = log_resp.json()
+    actions = [e["action"] for e in entries]
+    assert "upload" in actions
+    assert "view" in actions
+    assert "download" in actions
+
+
+def test_access_log_records_delete():
+    """Test that deleting a file creates a delete log entry."""
+    file_content = b"delete log test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("dellog.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Delete the file
+    client.delete(f"/files/{file_hash}", headers=MOCK_AUTH_HEADERS)
+
+    # Access log should still have entries even though file metadata is gone
+    # But the endpoint requires the file to exist, so we check the service directly
+    from src.services.access_log import get_access_log
+    import asyncio
+    entries = asyncio.get_event_loop().run_until_complete(get_access_log(file_hash))
+    actions = [e["action"] for e in entries]
+    assert "delete" in actions
+
+
+def test_access_log_requires_auth():
+    """Test that access log endpoint requires authentication."""
+    response = client.get("/files/somehash/access-log")
+    assert response.status_code == 401
+
+
+def test_access_log_requires_owner():
+    """Test that non-owners cannot view access log."""
+    file_content = b"owner only log test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("ownerlog.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Try with a different wallet address
+    other_headers = {
+        "X-Wallet-Address": "0x1234567890abcdef1234567890abcdef12345678",
+        "X-Wallet-Signature": "0x" + "cd" * 65,
+        "X-Wallet-Nonce": "afs_other_nonce_456",
+    }
+    log_resp = client.get(
+        f"/files/{file_hash}/access-log",
+        headers=other_headers,
+    )
+    assert log_resp.status_code == 403
+
+
+def test_access_log_file_not_found():
+    """Test that access log for non-existent file returns 404."""
+    log_resp = client.get(
+        "/files/nonexistenthash/access-log",
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert log_resp.status_code == 404
