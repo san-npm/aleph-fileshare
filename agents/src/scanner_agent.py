@@ -13,6 +13,8 @@ import logging
 import os
 from typing import Optional
 
+import httpx
+
 from agents.src.utils import Config, MetadataClient
 
 logger = logging.getLogger("scanner-agent")
@@ -153,12 +155,27 @@ class ScannerAgent:
         Returns:
             "clean", "flagged", or None if not found.
         """
-        # Stub for VirusTotal API integration
-        # Would use: GET https://www.virustotal.com/api/v3/files/{hash}
-        # Headers: x-apikey: {VIRUSTOTAL_API_KEY}
-        #
-        # Example response check:
-        # if data["attributes"]["last_analysis_stats"]["malicious"] > 0:
-        #     return "flagged"
-        # return "clean"
-        return None
+        api_key = os.getenv("VIRUSTOTAL_API_KEY", "")
+        if not api_key:
+            logger.warning("VIRUSTOTAL_API_KEY not set — returning clean with warning")
+            return "clean"
+
+        url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
+        headers = {"x-apikey": api_key}
+
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(url, headers=headers)
+
+        if response.status_code == 404:
+            return None
+
+        if response.status_code != 200:
+            logger.error(f"VirusTotal API error: {response.status_code}")
+            return None
+
+        data = response.json()
+        stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+        if stats.get("malicious", 0) > 0:
+            return "flagged"
+
+        return "clean"

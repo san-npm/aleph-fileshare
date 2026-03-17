@@ -98,11 +98,12 @@ async def _store_aleph(key: str, content: dict[str, Any]) -> None:
         async with AuthenticatedAlephHttpClient(
             account=account, api_server=api_server
         ) as client:
-            await client.create_aggregate(
+            result = await client.create_aggregate(
                 key=key,
                 content=content,
                 channel=channel,
             )
+            content["aleph_item_hash"] = result.item_hash
     except Exception as e:
         logger.error(f"Aleph aggregate store failed: {e}")
         raise
@@ -131,18 +132,82 @@ async def _get_aleph(key: str) -> Optional[dict[str, Any]]:
 
 async def _delete_aleph(key: str) -> bool:
     """Delete via Aleph FORGET."""
-    # Handled by aleph_storage.delete_file
-    return True
+    try:
+        from aleph.sdk.client import AuthenticatedAlephHttpClient
+        from aleph.sdk.chains.ethereum import ETHAccount
+
+        private_key = os.getenv("ALEPH_PRIVATE_KEY", "")
+        channel = os.getenv("ALEPH_CHANNEL", "ALEPH_FILESHARE")
+        api_server = os.getenv("ALEPH_API_SERVER", "https://api1.aleph.im")
+
+        # Fetch current metadata to get the item hash
+        metadata = await _get_aleph(key)
+        if not metadata:
+            logger.warning(f"Cannot delete — metadata not found for key: {key}")
+            return False
+
+        item_hash = metadata.get("aleph_item_hash")
+        if not item_hash:
+            logger.warning(f"Cannot delete — no aleph_item_hash in metadata for key: {key}")
+            return False
+
+        account = ETHAccount(private_key=private_key)
+        async with AuthenticatedAlephHttpClient(
+            account=account, api_server=api_server
+        ) as client:
+            await client.forget(
+                hashes=[item_hash],
+                channel=channel,
+            )
+        return True
+    except Exception as e:
+        logger.error(f"Aleph aggregate delete failed: {e}")
+        return False
 
 
 async def _list_aleph(
     uploader: str, limit: int, offset: int, sort: str
 ) -> tuple[list[dict[str, Any]], int]:
-    """List aggregates for an uploader — currently returns local fallback."""
-    # Aleph aggregates don't support listing by uploader natively,
-    # so in production you'd use the indexer. For now, return empty.
-    logger.warning("Aleph aggregate listing not yet implemented — use indexer")
-    return [], 0
+    """List aggregates for an uploader via Aleph AGGREGATE messages."""
+    try:
+        from aleph.sdk.client import AlephHttpClient
+        from aleph_message.models import MessageType
+
+        api_server = os.getenv("ALEPH_API_SERVER", "https://api1.aleph.im")
+        channel = os.getenv("ALEPH_CHANNEL", "ALEPH_FILESHARE")
+
+        async with AlephHttpClient(api_server=api_server) as client:
+            response = await client.get_messages(
+                message_type=MessageType.aggregate,
+                addresses=[uploader],
+                channels=[channel],
+            )
+
+        items = []
+        for msg in response.messages:
+            content = msg.content.content
+            if isinstance(content, dict):
+                items.append(content)
+            else:
+                # Aggregate content is keyed — flatten values
+                for val in content.values():
+                    if isinstance(val, dict):
+                        items.append(val)
+
+        # Sort
+        reverse = sort.endswith("_desc")
+        sort_key = sort.replace("_desc", "").replace("_asc", "")
+        if sort_key == "size":
+            sort_key = "size_bytes"
+        items.sort(key=lambda x: x.get(sort_key, ""), reverse=reverse)
+
+        total = len(items)
+        items = items[offset : offset + limit]
+
+        return items, total
+    except Exception as e:
+        logger.error(f"Aleph aggregate listing failed: {e}")
+        return [], 0
 
 
 # --- Local Mode ---
