@@ -6,10 +6,11 @@ import {
   getChallenge,
   uploadFile,
   FileUploadResponse,
+  UploadOptions,
 } from "@/lib/api";
 
 interface UseFileUploadReturn {
-  upload: (file: File, isPublic?: boolean) => Promise<FileUploadResponse | null>;
+  upload: (file: File, options?: UploadOptions) => Promise<FileUploadResponse | null>;
   isUploading: boolean;
   progress: number;
   error: string | null;
@@ -35,7 +36,7 @@ export function useFileUpload(): UseFileUploadReturn {
   const upload = useCallback(
     async (
       file: File,
-      isPublic: boolean = true
+      options: UploadOptions = {}
     ): Promise<FileUploadResponse | null> => {
       if (!address) {
         setError("Please connect your wallet first.");
@@ -66,7 +67,7 @@ export function useFileUpload(): UseFileUploadReturn {
         const uploadResult = await uploadFile(
           file,
           authHeaders,
-          isPublic,
+          options,
           (pct) => setProgress(pct)
         );
 

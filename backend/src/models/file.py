@@ -1,6 +1,8 @@
 """Pydantic models for file operations."""
 
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +19,26 @@ class FileMetadata(BaseModel):
     scan_status: str = "pending"
     tags: list[str] = Field(default_factory=list)
     description: str = ""
+    expires_at: Optional[str] = None
+    password_hash: Optional[str] = None
+
+
+class FileMetadataPublic(BaseModel):
+    """Public file metadata (hides password_hash, adds computed fields)."""
+
+    hash: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    public: bool = True
+    uploader: str
+    uploaded_at: str
+    scan_status: str = "pending"
+    tags: list[str] = Field(default_factory=list)
+    description: str = ""
+    expires_at: Optional[str] = None
+    password_protected: bool = False
+    is_expired: bool = False
 
 
 class FileUploadResponse(BaseModel):
@@ -29,6 +51,7 @@ class FileUploadResponse(BaseModel):
     public: bool
     share_url: str
     uploaded_at: str
+    expires_at: Optional[str] = None
 
 
 class FileListItem(BaseModel):
@@ -40,6 +63,9 @@ class FileListItem(BaseModel):
     uploaded_at: str
     scan_status: str = "pending"
     tags: list[str] = Field(default_factory=list)
+    expires_at: Optional[str] = None
+    password_protected: bool = False
+    is_expired: bool = False
 
 
 class FileListResponse(BaseModel):
@@ -63,3 +89,13 @@ class ErrorResponse(BaseModel):
 
     detail: str
     code: str
+
+
+class AccessLogEntry(BaseModel):
+    """Single entry in the access log."""
+
+    file_hash: str
+    action: str
+    actor: str
+    ip: str
+    timestamp: str

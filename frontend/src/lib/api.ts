@@ -22,6 +22,7 @@ export interface FileUploadResponse {
   public: boolean;
   share_url: string;
   uploaded_at: string;
+  expires_at: string | null;
 }
 
 export interface FileMetadata {
@@ -35,6 +36,9 @@ export interface FileMetadata {
   scan_status: string;
   tags: string[];
   description: string;
+  expires_at: string | null;
+  password_protected: boolean;
+  is_expired: boolean;
 }
 
 export interface FileListItem {
@@ -44,6 +48,9 @@ export interface FileListItem {
   uploaded_at: string;
   scan_status: string;
   tags: string[];
+  expires_at: string | null;
+  password_protected: boolean;
+  is_expired: boolean;
 }
 
 export interface ScanStatusResponse {
@@ -60,6 +67,20 @@ export interface FileListResponse {
   files: FileListItem[];
 }
 
+export interface AccessLogEntry {
+  file_hash: string;
+  action: string;
+  actor: string;
+  ip: string;
+  timestamp: string;
+}
+
+export interface UploadOptions {
+  isPublic?: boolean;
+  expiresInHours?: number;
+  password?: string;
+}
+
 export async function getChallenge(
   address: string
 ): Promise<ChallengeResponse> {
@@ -73,12 +94,18 @@ export async function getChallenge(
 export async function uploadFile(
   file: File,
   authHeaders: AuthHeaders,
-  isPublic: boolean = true,
+  options: UploadOptions = {},
   onProgress?: (pct: number) => void
 ): Promise<FileUploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("public", String(isPublic));
+  formData.append("public", String(options.isPublic ?? true));
+  if (options.expiresInHours && options.expiresInHours > 0) {
+    formData.append("expires_in_hours", String(options.expiresInHours));
+  }
+  if (options.password) {
+    formData.append("password", options.password);
+  }
 
   // Use XMLHttpRequest for progress tracking
   return new Promise((resolve, reject) => {
@@ -124,6 +151,15 @@ export async function getFileMetadata(hash: string): Promise<FileMetadata> {
   return res.json();
 }
 
+export async function downloadFileWithPassword(
+  hash: string,
+  password: string
+): Promise<Response> {
+  return fetch(`${BASE_URL}/files/${hash}/download`, {
+    headers: { "X-Download-Password": password },
+  });
+}
+
 export async function getFileDownloadUrl(hash: string): Promise<string> {
   return `${BASE_URL}/files/${hash}/download`;
 }
@@ -157,10 +193,35 @@ export async function deleteFile(
   if (!res.ok) throw new Error("Failed to delete file");
 }
 
+export async function getAccessLog(
+  hash: string,
+  authHeaders: AuthHeaders
+): Promise<AccessLogEntry[]> {
+  const res = await fetch(`${BASE_URL}/files/${hash}/access-log`, {
+    headers: authHeaders,
+  });
+  if (!res.ok) throw new Error("Failed to get access log");
+  return res.json();
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+export function formatTimeRemaining(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const expiry = new Date(expiresAt).getTime();
+  const now = Date.now();
+  const diff = expiry - now;
+  if (diff <= 0) return "Expired";
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `Expires in ${days}d`;
+  if (hours > 0) return `Expires in ${hours}h`;
+  const minutes = Math.floor(diff / (1000 * 60));
+  return `Expires in ${minutes}m`;
 }

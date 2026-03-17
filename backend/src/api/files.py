@@ -2,18 +2,22 @@
 
 import os
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
+import bcrypt
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
 from src.models.file import (
+    AccessLogEntry,
     FileDeleteResponse,
     FileListItem,
     FileListResponse,
-    FileMetadata,
+    FileMetadataPublic,
     FileUploadResponse,
 )
+from src.services.access_log import get_access_log, log_access
 from src.services.aleph_aggregates import (
     delete_metadata,
     get_metadata,
@@ -58,11 +62,30 @@ def _verify_auth(
     return wallet_address
 
 
+def _is_expired(expires_at: Optional[str]) -> bool:
+    """Check if an expiry timestamp has passed."""
+    if not expires_at:
+        return False
+    try:
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) >= expiry
+    except (ValueError, TypeError):
+        return False
+
+
+def _client_ip(request: Request) -> str:
+    """Extract client IP from request."""
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/upload", response_model=FileUploadResponse, status_code=201)
 async def upload(
+    request: Request,
     file: UploadFile = File(...),
     public: bool = Form(True),
     filename_override: Optional[str] = Form(None),
+    expires_in_hours: Optional[int] = Form(None),
+    password: Optional[str] = Form(None),
     x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
     x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
     x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
@@ -93,6 +116,17 @@ async def upload(
     # Upload to storage
     file_hash = await upload_file(content, filename)
 
+    # Compute expiry
+    expires_at: Optional[str] = None
+    if expires_in_hours and expires_in_hours > 0:
+        expiry_ts = time.time() + (expires_in_hours * 3600)
+        expires_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expiry_ts))
+
+    # Hash password if provided
+    pw_hash: Optional[str] = None
+    if password:
+        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
     # Build metadata
     uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     metadata = {
@@ -106,10 +140,15 @@ async def upload(
         "scan_status": "pending",
         "tags": [],
         "description": "",
+        "expires_at": expires_at,
+        "password_hash": pw_hash,
     }
 
     # Store metadata
     await store_metadata(file_hash, metadata)
+
+    # Log access
+    await log_access(file_hash, "upload", address, _client_ip(request))
 
     share_url = f"{APP_URL}/d/{file_hash}"
 
@@ -121,6 +160,7 @@ async def upload(
         public=public,
         share_url=share_url,
         uploaded_at=uploaded_at,
+        expires_at=expires_at,
     )
 
 
@@ -138,13 +178,14 @@ async def get_scan_status(hash: str) -> dict:
     }
 
 
-@router.get("/{hash}", response_model=FileMetadata)
+@router.get("/{hash}", response_model=FileMetadataPublic)
 async def get_file_metadata(
     hash: str,
+    request: Request,
     x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
     x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
     x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
-) -> FileMetadata:
+) -> FileMetadataPublic:
     """Get file metadata by hash."""
     metadata = await get_metadata(hash)
     if not metadata:
@@ -159,20 +200,45 @@ async def get_file_metadata(
         if x_wallet_address.lower() != metadata.get("uploader", "").lower():
             raise HTTPException(status_code=403, detail="File is private and you are not the owner.")
 
-    return FileMetadata(**metadata)
+    # Log view access
+    actor = x_wallet_address or "anonymous"
+    await log_access(hash, "view", actor, _client_ip(request))
+
+    # Build public response (no password_hash exposed)
+    return FileMetadataPublic(
+        hash=metadata["hash"],
+        filename=metadata["filename"],
+        mime_type=metadata["mime_type"],
+        size_bytes=metadata["size_bytes"],
+        public=metadata.get("public", True),
+        uploader=metadata["uploader"],
+        uploaded_at=metadata["uploaded_at"],
+        scan_status=metadata.get("scan_status", "pending"),
+        tags=metadata.get("tags", []),
+        description=metadata.get("description", ""),
+        expires_at=metadata.get("expires_at"),
+        password_protected=bool(metadata.get("password_hash")),
+        is_expired=_is_expired(metadata.get("expires_at")),
+    )
 
 
 @router.get("/{hash}/download")
 async def download(
     hash: str,
+    request: Request,
     x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
     x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
     x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
+    x_download_password: Optional[str] = Header(None, alias="X-Download-Password"),
 ) -> Response:
     """Download a file by hash."""
     metadata = await get_metadata(hash)
     if not metadata:
         raise HTTPException(status_code=404, detail="File not found.")
+
+    # Check expiry
+    if _is_expired(metadata.get("expires_at")):
+        raise HTTPException(status_code=410, detail="This link has expired.")
 
     # Check access for private files
     if not metadata.get("public", True):
@@ -183,6 +249,14 @@ async def download(
         if x_wallet_address.lower() != metadata.get("uploader", "").lower():
             raise HTTPException(status_code=403, detail="File is private and you are not the owner.")
 
+    # Check password
+    stored_hash = metadata.get("password_hash")
+    if stored_hash:
+        if not x_download_password:
+            raise HTTPException(status_code=401, detail="Password required.")
+        if not bcrypt.checkpw(x_download_password.encode("utf-8"), stored_hash.encode("utf-8")):
+            raise HTTPException(status_code=401, detail="Incorrect password.")
+
     # Check scan status
     if metadata.get("scan_status") == "flagged":
         raise HTTPException(status_code=451, detail="File has been flagged and is unavailable.")
@@ -190,6 +264,10 @@ async def download(
     file_content = await download_file(hash)
     if not file_content:
         raise HTTPException(status_code=404, detail="File not found on storage.")
+
+    # Log download access
+    actor = x_wallet_address or "anonymous"
+    await log_access(hash, "download", actor, _client_ip(request))
 
     filename = metadata.get("filename", "download")
     mime_type = metadata.get("mime_type", "application/octet-stream")
@@ -207,6 +285,7 @@ async def download(
 @router.delete("/{hash}", response_model=FileDeleteResponse)
 async def delete(
     hash: str,
+    request: Request,
     x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
     x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
     x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
@@ -224,10 +303,34 @@ async def delete(
     await delete_file(hash)
     await delete_metadata(hash)
 
+    # Log delete access
+    await log_access(hash, "delete", address, _client_ip(request))
+
     return FileDeleteResponse(
         message="File forget message submitted.",
         hash=hash,
     )
+
+
+@router.get("/{hash}/access-log", response_model=list[AccessLogEntry])
+async def file_access_log(
+    hash: str,
+    x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
+    x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
+    x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
+) -> list[AccessLogEntry]:
+    """Get access log for a file (owner only)."""
+    address = _verify_auth(x_wallet_address, x_wallet_signature, x_wallet_nonce)
+
+    metadata = await get_metadata(hash)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    if metadata.get("uploader", "").lower() != address.lower():
+        raise HTTPException(status_code=403, detail="Only the file owner can view access logs.")
+
+    entries = await get_access_log(hash, limit=50)
+    return [AccessLogEntry(**entry) for entry in entries]
 
 
 @router.get("", response_model=FileListResponse)
@@ -256,6 +359,9 @@ async def list_files(
             uploaded_at=item["uploaded_at"],
             scan_status=item.get("scan_status", "pending"),
             tags=item.get("tags", []),
+            expires_at=item.get("expires_at"),
+            password_protected=bool(item.get("password_hash")),
+            is_expired=_is_expired(item.get("expires_at")),
         )
         for item in items
     ]

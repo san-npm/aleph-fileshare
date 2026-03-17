@@ -2,11 +2,20 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { FileListItem, formatBytes, getScanStatus } from "@/lib/api";
+import {
+  FileListItem,
+  AccessLogEntry,
+  formatBytes,
+  formatTimeRemaining,
+  getScanStatus,
+  getAccessLog,
+  AuthHeaders,
+} from "@/lib/api";
 
 interface FileCardProps {
   file: FileListItem;
   onDelete?: (hash: string) => void;
+  onGetAccessLog?: (hash: string) => Promise<AccessLogEntry[]>;
 }
 
 const SCAN_BADGE: Record<string, { color: string; label: string; icon: string }> = {
@@ -32,12 +41,15 @@ const SCAN_BADGE: Record<string, { color: string; label: string; icon: string }>
   },
 };
 
-export function FileCard({ file, onDelete }: FileCardProps) {
+export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
   const [scanStatus, setScanStatus] = useState(file.scan_status);
   const [tags, setTags] = useState<string[]>(file.tags || []);
   const [copied, setCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [showAccessLog, setShowAccessLog] = useState(false);
+  const [accessLog, setAccessLog] = useState<AccessLogEntry[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-refresh scan status every 5 seconds while pending
@@ -94,6 +106,7 @@ export function FileCard({ file, onDelete }: FileCardProps) {
 
   const badge = SCAN_BADGE[scanStatus] || SCAN_BADGE.pending;
   const date = new Date(file.uploaded_at).toLocaleDateString();
+  const expiryLabel = formatTimeRemaining(file.expires_at);
 
   const copyLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/d/${file.hash}`);
@@ -117,6 +130,24 @@ export function FileCard({ file, onDelete }: FileCardProps) {
     }
   };
 
+  const handleShowAccessLog = async () => {
+    if (showAccessLog) {
+      setShowAccessLog(false);
+      return;
+    }
+    if (!onGetAccessLog) return;
+    setLogLoading(true);
+    try {
+      const entries = await onGetAccessLog(file.hash);
+      setAccessLog(entries);
+      setShowAccessLog(true);
+    } catch {
+      // Silently fail
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-all duration-200 group">
       <div className="flex items-start justify-between mb-3">
@@ -132,6 +163,26 @@ export function FileCard({ file, onDelete }: FileCardProps) {
         <span>{formatBytes(file.size_bytes)}</span>
         <span className="text-gray-600">·</span>
         <span>{date}</span>
+      </div>
+
+      {/* Expiry + Password badges */}
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {expiryLabel && (
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full border ${
+              file.is_expired
+                ? "bg-red-900/50 text-red-300 border-red-800/50"
+                : "bg-yellow-900/30 text-yellow-300 border-yellow-800/30"
+            }`}
+          >
+            {expiryLabel}
+          </span>
+        )}
+        {file.password_protected && (
+          <span className="text-xs px-2 py-0.5 rounded-full border bg-aleph-blue/10 text-aleph-blue border-aleph-blue/20">
+            Password
+          </span>
+        )}
       </div>
 
       {/* Tags */}
@@ -162,6 +213,16 @@ export function FileCard({ file, onDelete }: FileCardProps) {
         >
           {copied ? "✓" : "📋"}
         </button>
+        {onGetAccessLog && (
+          <button
+            onClick={handleShowAccessLog}
+            disabled={logLoading}
+            className="py-2 px-3 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+            title="Access Log"
+          >
+            {logLoading ? "..." : "📊"}
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={handleDelete}
@@ -177,6 +238,57 @@ export function FileCard({ file, onDelete }: FileCardProps) {
           </button>
         )}
       </div>
+
+      {/* Access Log Modal */}
+      {showAccessLog && (
+        <div className="mt-4 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-white">Access Log</h4>
+            <button
+              onClick={() => setShowAccessLog(false)}
+              className="text-gray-500 hover:text-white text-sm"
+            >
+              Close
+            </button>
+          </div>
+          {accessLog.length === 0 ? (
+            <p className="text-gray-500 text-xs">No access log entries.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-2">
+              {accessLog.map((entry, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between text-xs bg-gray-800/50 rounded-lg px-3 py-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-1.5 py-0.5 rounded font-medium ${
+                        entry.action === "download"
+                          ? "bg-blue-900/50 text-blue-300"
+                          : entry.action === "upload"
+                          ? "bg-green-900/50 text-green-300"
+                          : entry.action === "delete"
+                          ? "bg-red-900/50 text-red-300"
+                          : "bg-gray-700 text-gray-300"
+                      }`}
+                    >
+                      {entry.action}
+                    </span>
+                    <span className="text-gray-400 font-mono">
+                      {entry.actor === "anonymous"
+                        ? "anonymous"
+                        : `${entry.actor.slice(0, 6)}...${entry.actor.slice(-4)}`}
+                    </span>
+                  </div>
+                  <span className="text-gray-500">
+                    {new Date(entry.timestamp).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

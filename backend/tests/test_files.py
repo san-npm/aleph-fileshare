@@ -30,6 +30,15 @@ def mock_auth():
 
 
 @pytest.fixture(autouse=True)
+def clear_rate_limit():
+    """Clear the in-memory rate limiter between tests."""
+    from src.main import _rate_limit_store
+    _rate_limit_store.clear()
+    yield
+    _rate_limit_store.clear()
+
+
+@pytest.fixture(autouse=True)
 def temp_storage(tmp_path):
     """Use temporary directories for storage during tests."""
     storage_dir = tmp_path / "storage"
@@ -233,3 +242,99 @@ def test_download_flagged_file_blocked():
 
     response = client.get(f"/files/{file_hash}/download")
     assert response.status_code == 451
+
+
+def test_upload_with_expiry():
+    """Test uploading a file with expires_in_hours sets expires_at."""
+    file_content = b"expiry test"
+    response = client.post(
+        "/files/upload",
+        files={"file": ("expire.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true", "expires_in_hours": "24"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["expires_at"] is not None
+    assert "T" in data["expires_at"]  # ISO format
+
+
+def test_upload_without_expiry():
+    """Test uploading without expires_in_hours leaves expires_at null."""
+    file_content = b"no expiry"
+    response = client.post(
+        "/files/upload",
+        files={"file": ("noexpire.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert response.status_code == 201
+    assert response.json()["expires_at"] is None
+
+
+def test_download_expired_file_returns_410():
+    """Test that downloading an expired file returns 410 Gone."""
+    file_content = b"will expire"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("expired.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true", "expires_in_hours": "1"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Manually set expires_at to the past
+    from src.services.aleph_aggregates import _load_local_db, _save_local_db
+    db = _load_local_db()
+    db[file_hash]["expires_at"] = "2020-01-01T00:00:00Z"
+    _save_local_db(db)
+
+    response = client.get(f"/files/{file_hash}/download")
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"].lower()
+
+
+def test_metadata_is_expired_field():
+    """Test that metadata endpoint includes is_expired computed field."""
+    file_content = b"check expired field"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("expfield.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true", "expires_in_hours": "1"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Not expired yet
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.status_code == 200
+    assert meta_resp.json()["is_expired"] is False
+
+    # Set to past
+    from src.services.aleph_aggregates import _load_local_db, _save_local_db
+    db = _load_local_db()
+    db[file_hash]["expires_at"] = "2020-01-01T00:00:00Z"
+    _save_local_db(db)
+
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.status_code == 200
+    assert meta_resp.json()["is_expired"] is True
+
+
+def test_list_files_shows_expiry():
+    """Test that list endpoint includes expiry fields."""
+    file_content = b"list expiry test"
+    client.post(
+        "/files/upload",
+        files={"file": ("listexp.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true", "expires_in_hours": "24"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+
+    response = client.get("/files", headers=MOCK_AUTH_HEADERS)
+    assert response.status_code == 200
+    files = response.json()["files"]
+    # Find our file with expiry
+    expiry_files = [f for f in files if f.get("expires_at") is not None]
+    assert len(expiry_files) > 0
+    assert "is_expired" in expiry_files[0]

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 import {
   getChallenge,
   listFiles,
   deleteFile,
+  getAccessLog,
   FileListItem,
+  AccessLogEntry,
 } from "@/lib/api";
 
 interface UseFilesReturn {
@@ -16,6 +18,7 @@ interface UseFilesReturn {
   error: string | null;
   fetchFiles: (offset?: number) => Promise<void>;
   removeFile: (hash: string) => Promise<void>;
+  fetchAccessLog: (hash: string) => Promise<AccessLogEntry[]>;
 }
 
 export function useFiles(limit: number = 20): UseFilesReturn {
@@ -72,5 +75,13 @@ export function useFiles(limit: number = 20): UseFilesReturn {
     [getAuthHeaders]
   );
 
-  return { files, total, isLoading, error, fetchFiles, removeFile };
+  const fetchAccessLog = useCallback(
+    async (hash: string): Promise<AccessLogEntry[]> => {
+      const auth = await getAuthHeaders();
+      return getAccessLog(hash, auth);
+    },
+    [getAuthHeaders]
+  );
+
+  return { files, total, isLoading, error, fetchFiles, removeFile, fetchAccessLog };
 }

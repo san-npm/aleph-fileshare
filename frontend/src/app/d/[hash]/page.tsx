@@ -6,7 +6,9 @@ import Link from "next/link";
 import {
   getFileMetadata,
   getScanStatus,
+  downloadFileWithPassword,
   formatBytes,
+  formatTimeRemaining,
   FileMetadata,
 } from "@/lib/api";
 import { config } from "@/lib/config";
@@ -52,6 +54,11 @@ export default function DownloadPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Password state
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -120,6 +127,38 @@ export default function DownloadPage() {
     return () => clearInterval(tagInterval);
   }, [scanStatus, tags, hash]);
 
+  const handlePasswordDownload = async () => {
+    setPasswordError(null);
+    setIsDownloading(true);
+    try {
+      const res = await downloadFileWithPassword(hash, password);
+      if (!res.ok) {
+        if (res.status === 401) {
+          setPasswordError("Incorrect password.");
+        } else if (res.status === 410) {
+          setPasswordError("This link has expired.");
+        } else {
+          setPasswordError("Download failed.");
+        }
+        return;
+      }
+      // Trigger browser download
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = metadata?.filename || "download";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setPasswordError("Download failed.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -158,6 +197,10 @@ export default function DownloadPage() {
   const icon = getFileIcon(metadata.mime_type);
   const badgeStyle = SCAN_BADGE_STYLES[scanStatus] || SCAN_BADGE_STYLES.pending;
   const badgeLabel = SCAN_LABELS[scanStatus] || SCAN_LABELS.pending;
+  const expiryLabel = formatTimeRemaining(metadata.expires_at);
+
+  const isExpired = metadata.is_expired;
+  const needsPassword = metadata.password_protected;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
@@ -173,6 +216,25 @@ export default function DownloadPage() {
           <p className="text-gray-400 text-sm">
             Shared via AlephFileShare
           </p>
+          {/* Expiry + Password badges */}
+          <div className="flex items-center justify-center gap-2 mt-3">
+            {expiryLabel && (
+              <span
+                className={`text-xs px-2.5 py-1 rounded-full border ${
+                  isExpired
+                    ? "bg-red-900/50 text-red-300 border-red-800/50"
+                    : "bg-yellow-900/30 text-yellow-300 border-yellow-800/30"
+                }`}
+              >
+                {expiryLabel}
+              </span>
+            )}
+            {needsPassword && (
+              <span className="text-xs px-2.5 py-1 rounded-full border bg-aleph-blue/10 text-aleph-blue border-aleph-blue/20">
+                Password Protected
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Details */}
@@ -240,10 +302,46 @@ export default function DownloadPage() {
             )}
           </div>
 
-          {scanStatus === "flagged" ? (
+          {isExpired ? (
+            <div className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-red-900/30 text-red-300 rounded-lg font-medium border border-red-800/30">
+              <span>⏰</span>
+              <span>This link has expired</span>
+            </div>
+          ) : scanStatus === "flagged" ? (
             <div className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-red-900/30 text-red-300 rounded-lg font-medium border border-red-800/30">
               <span>⚠</span>
               <span>This file has been flagged and is unavailable for download</span>
+            </div>
+          ) : needsPassword ? (
+            <div>
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setPasswordError(null);
+                  }}
+                  placeholder="Enter download password"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-aleph-blue transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && password) handlePasswordDownload();
+                  }}
+                />
+                <button
+                  onClick={handlePasswordDownload}
+                  disabled={!password || isDownloading}
+                  className="flex items-center gap-2 py-3 px-6 bg-aleph-blue hover:bg-aleph-blue/80 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {isDownloading ? "Downloading..." : "Download"}
+                </button>
+              </div>
+              {passwordError && (
+                <p className="text-red-400 text-sm mt-1">{passwordError}</p>
+              )}
             </div>
           ) : (
             <a

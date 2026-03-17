@@ -4,7 +4,15 @@ import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useAccount } from "wagmi";
 import { useFileUpload } from "@/hooks/useFileUpload";
-import { formatBytes } from "@/lib/api";
+import { formatBytes, formatTimeRemaining } from "@/lib/api";
+
+const EXPIRY_OPTIONS = [
+  { label: "Never", value: 0 },
+  { label: "1 hour", value: 1 },
+  { label: "24 hours", value: 24 },
+  { label: "7 days", value: 168 },
+  { label: "30 days", value: 720 },
+];
 
 export function FileUpload() {
   const { isConnected } = useAccount();
@@ -12,16 +20,21 @@ export function FileUpload() {
     useFileUpload();
   const [copied, setCopied] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [expiresInHours, setExpiresInHours] = useState(0);
+  const [password, setPassword] = useState("");
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
       reset();
       setSelectedFile(acceptedFiles[0]);
-      await upload(acceptedFiles[0]);
+      await upload(acceptedFiles[0], {
+        expiresInHours: expiresInHours || undefined,
+        password: password || undefined,
+      });
       setSelectedFile(null);
     },
-    [upload, reset]
+    [upload, reset, expiresInHours, password]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -115,6 +128,39 @@ export function FileUpload() {
         )}
       </div>
 
+      {/* Upload options */}
+      {!result && !isUploading && (
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Expiry picker */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1.5">Link Expiry</label>
+            <select
+              value={expiresInHours}
+              onChange={(e) => setExpiresInHours(Number(e.target.value))}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-aleph-blue transition-colors"
+            >
+              {EXPIRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Password field */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1.5">Password (optional)</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave empty for no password"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-aleph-blue transition-colors"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="mt-4 p-4 bg-red-900/20 border border-red-800/50 rounded-lg flex items-start gap-3">
@@ -172,6 +218,22 @@ export function FileUpload() {
                 {result.hash.slice(0, 12)}...{result.hash.slice(-6)}
               </span>
             </div>
+            {result.expires_at && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Expires</span>
+                <span className="text-yellow-300 text-xs px-2 py-0.5 bg-yellow-900/30 border border-yellow-800/30 rounded-full">
+                  {formatTimeRemaining(result.expires_at)}
+                </span>
+              </div>
+            )}
+            {password && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Password</span>
+                <span className="text-aleph-blue text-xs px-2 py-0.5 bg-aleph-blue/10 border border-aleph-blue/20 rounded-full">
+                  Protected
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 mt-5">
@@ -196,7 +258,11 @@ export function FileUpload() {
               )}
             </button>
             <button
-              onClick={reset}
+              onClick={() => {
+                reset();
+                setPassword("");
+                setExpiresInHours(0);
+              }}
               className="py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors"
             >
               Upload Another

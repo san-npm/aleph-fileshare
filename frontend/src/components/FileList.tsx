@@ -7,7 +7,7 @@ import { FileCard } from "./FileCard";
 
 export function FileList() {
   const { isConnected } = useAccount();
-  const { files, total, isLoading, error, fetchFiles, removeFile } =
+  const { files, total, isLoading, error, fetchFiles, removeFile, fetchAccessLog } =
     useFiles();
 
   useEffect(() => {
@@ -75,7 +75,12 @@ export function FileList() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {files.map((file) => (
-          <FileCard key={file.hash} file={file} onDelete={removeFile} />
+          <FileCard
+            key={file.hash}
+            file={file}
+            onDelete={removeFile}
+            onGetAccessLog={fetchAccessLog}
+          />
         ))}
       </div>
     </div>
