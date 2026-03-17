@@ -321,6 +321,68 @@ def test_metadata_is_expired_field():
     assert meta_resp.json()["is_expired"] is True
 
 
+def test_password_protected_upload_and_download():
+    """Test uploading with password and downloading with correct/wrong password."""
+    file_content = b"secret content"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("secret.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true", "password": "hunter2"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert upload_resp.status_code == 201
+    file_hash = upload_resp.json()["hash"]
+
+    # Metadata should show password_protected=True but no password_hash
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.status_code == 200
+    meta = meta_resp.json()
+    assert meta["password_protected"] is True
+    assert "password_hash" not in meta
+
+    # Download without password → 401
+    resp_no_pw = client.get(f"/files/{file_hash}/download")
+    assert resp_no_pw.status_code == 401
+    assert "required" in resp_no_pw.json()["detail"].lower()
+
+    # Download with wrong password → 401
+    resp_bad_pw = client.get(
+        f"/files/{file_hash}/download",
+        headers={"X-Download-Password": "wrongpassword"},
+    )
+    assert resp_bad_pw.status_code == 401
+    assert "Invalid password" in resp_bad_pw.json()["detail"]
+
+    # Download with correct password → 200
+    resp_ok = client.get(
+        f"/files/{file_hash}/download",
+        headers={"X-Download-Password": "hunter2"},
+    )
+    assert resp_ok.status_code == 200
+    assert resp_ok.content == file_content
+
+
+def test_upload_without_password_no_protection():
+    """Test that files uploaded without password are not password-protected."""
+    file_content = b"open content"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("open.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert upload_resp.status_code == 201
+    file_hash = upload_resp.json()["hash"]
+
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.json()["password_protected"] is False
+
+    # Download without password → 200
+    resp = client.get(f"/files/{file_hash}/download")
+    assert resp.status_code == 200
+    assert resp.content == file_content
+
+
 def test_list_files_shows_expiry():
     """Test that list endpoint includes expiry fields."""
     file_content = b"list expiry test"
