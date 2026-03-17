@@ -1,9 +1,7 @@
 """Wallet signature verification and nonce management."""
 
-import os
 import secrets
 import time
-from typing import Optional
 
 from eth_account.messages import encode_defunct
 from web3 import Web3

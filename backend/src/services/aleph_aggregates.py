@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-import aiofiles
 
 logger = logging.getLogger(__name__)
 

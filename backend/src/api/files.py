@@ -1,6 +1,5 @@
 """File management routes."""
 
-import mimetypes
 import os
 import time
 from typing import Optional
@@ -9,7 +8,6 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadF
 from fastapi.responses import Response
 
 from src.models.file import (
-    ErrorResponse,
     FileDeleteResponse,
     FileListItem,
     FileListResponse,

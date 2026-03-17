@@ -1,7 +1,6 @@
 """IPFS file storage via Aleph Cloud SDK, with local fallback."""
 
 import hashlib
-import json
 import os
 import logging
 from pathlib import Path
