@@ -6,6 +6,7 @@ import {
   getChallenge,
   listFiles,
   deleteFile,
+  updateLink,
   getAccessLog,
   FileListItem,
   AccessLogEntry,
@@ -18,6 +19,7 @@ interface UseFilesReturn {
   error: string | null;
   fetchFiles: (offset?: number) => Promise<void>;
   removeFile: (hash: string) => Promise<void>;
+  toggleLink: (hash: string, enabled: boolean) => Promise<void>;
   fetchAccessLog: (hash: string) => Promise<AccessLogEntry[]>;
 }
 
@@ -75,6 +77,21 @@ export function useFiles(limit: number = 20): UseFilesReturn {
     [getAuthHeaders]
   );
 
+  const toggleLink = useCallback(
+    async (hash: string, enabled: boolean) => {
+      try {
+        const auth = await getAuthHeaders();
+        await updateLink(hash, enabled, auth);
+        setFiles((prev) =>
+          prev.map((f) => (f.hash === hash ? { ...f, link_enabled: enabled } : f))
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update link");
+      }
+    },
+    [getAuthHeaders]
+  );
+
   const fetchAccessLog = useCallback(
     async (hash: string): Promise<AccessLogEntry[]> => {
       const auth = await getAuthHeaders();
@@ -83,5 +100,5 @@ export function useFiles(limit: number = 20): UseFilesReturn {
     [getAuthHeaders]
   );
 
-  return { files, total, isLoading, error, fetchFiles, removeFile, fetchAccessLog };
+  return { files, total, isLoading, error, fetchFiles, removeFile, toggleLink, fetchAccessLog };
 }

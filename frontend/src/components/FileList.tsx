@@ -7,7 +7,7 @@ import { FileCard } from "./FileCard";
 
 export function FileList() {
   const { isConnected } = useAccount();
-  const { files, total, isLoading, error, fetchFiles, removeFile, fetchAccessLog } =
+  const { files, total, isLoading, error, fetchFiles, removeFile, toggleLink, fetchAccessLog } =
     useFiles();
 
   useEffect(() => {
@@ -79,6 +79,7 @@ export function FileList() {
             key={file.hash}
             file={file}
             onDelete={removeFile}
+            onToggleLink={toggleLink}
             onGetAccessLog={fetchAccessLog}
           />
         ))}

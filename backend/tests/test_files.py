@@ -524,3 +524,158 @@ def test_access_log_file_not_found():
         headers=MOCK_AUTH_HEADERS,
     )
     assert log_resp.status_code == 404
+
+
+# --- Phase 3d: Revoke Shared Link Tests ---
+
+
+def test_revoke_link():
+    """Test that revoking a shared link disables downloads."""
+    file_content = b"revoke link test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("revoke.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert upload_resp.status_code == 201
+    file_hash = upload_resp.json()["hash"]
+
+    # Download works before revoke
+    resp = client.get(f"/files/{file_hash}/download")
+    assert resp.status_code == 200
+
+    # Revoke the link
+    patch_resp = client.patch(
+        f"/files/{file_hash}/link",
+        json={"link_enabled": False},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["link_enabled"] is False
+
+    # Download should now return 403
+    resp = client.get(f"/files/{file_hash}/download")
+    assert resp.status_code == 403
+    assert "revoked" in resp.json()["detail"].lower()
+
+
+def test_restore_link():
+    """Test that re-enabling a revoked link restores downloads."""
+    file_content = b"restore link test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("restore.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Revoke
+    client.patch(
+        f"/files/{file_hash}/link",
+        json={"link_enabled": False},
+        headers=MOCK_AUTH_HEADERS,
+    )
+
+    # Restore
+    patch_resp = client.patch(
+        f"/files/{file_hash}/link",
+        json={"link_enabled": True},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["link_enabled"] is True
+
+    # Download should work again
+    resp = client.get(f"/files/{file_hash}/download")
+    assert resp.status_code == 200
+    assert resp.content == file_content
+
+
+def test_revoke_link_requires_auth():
+    """Test that revoking a link requires authentication."""
+    resp = client.patch(
+        "/files/somehash/link",
+        json={"link_enabled": False},
+    )
+    assert resp.status_code == 401
+
+
+def test_revoke_link_requires_owner():
+    """Test that only the file owner can revoke a link."""
+    file_content = b"owner only revoke test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("ownerrevoke.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    other_headers = {
+        "X-Wallet-Address": "0x1234567890abcdef1234567890abcdef12345678",
+        "X-Wallet-Signature": "0x" + "cd" * 65,
+        "X-Wallet-Nonce": "afs_other_nonce_789",
+    }
+    resp = client.patch(
+        f"/files/{file_hash}/link",
+        json={"link_enabled": False},
+        headers=other_headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_revoke_link_file_not_found():
+    """Test revoking a link for a non-existent file returns 404."""
+    resp = client.patch(
+        "/files/nonexistent/link",
+        json={"link_enabled": False},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    assert resp.status_code == 404
+
+
+def test_metadata_shows_link_enabled():
+    """Test that metadata endpoint includes link_enabled field."""
+    file_content = b"link enabled field test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("linkfield.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    # Default should be True
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.status_code == 200
+    assert meta_resp.json()["link_enabled"] is True
+
+    # Revoke and check
+    client.patch(
+        f"/files/{file_hash}/link",
+        json={"link_enabled": False},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    meta_resp = client.get(f"/files/{file_hash}")
+    assert meta_resp.json()["link_enabled"] is False
+
+
+def test_list_files_shows_link_enabled():
+    """Test that list endpoint includes link_enabled field."""
+    file_content = b"list link enabled test"
+    upload_resp = client.post(
+        "/files/upload",
+        files={"file": ("listlink.txt", io.BytesIO(file_content), "text/plain")},
+        data={"public": "true"},
+        headers=MOCK_AUTH_HEADERS,
+    )
+    file_hash = upload_resp.json()["hash"]
+
+    response = client.get("/files", headers=MOCK_AUTH_HEADERS)
+    assert response.status_code == 200
+    files = response.json()["files"]
+    our_file = [f for f in files if f["hash"] == file_hash]
+    assert len(our_file) == 1
+    assert our_file[0]["link_enabled"] is True

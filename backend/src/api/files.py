@@ -9,6 +9,8 @@ import bcrypt
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
+from pydantic import BaseModel as _BaseModel
+
 from src.models.file import (
     AccessLogEntry,
     FileDeleteResponse,
@@ -26,6 +28,11 @@ from src.services.aleph_aggregates import (
 )
 from src.services.aleph_storage import delete_file, download_file, upload_file
 from src.services.auth_service import verify_signature
+
+
+class _LinkPatchBody(_BaseModel):
+    link_enabled: bool
+
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -219,6 +226,7 @@ async def get_file_metadata(
         expires_at=metadata.get("expires_at"),
         password_protected=bool(metadata.get("password_hash")),
         is_expired=_is_expired(metadata.get("expires_at")),
+        link_enabled=metadata.get("link_enabled", True),
     )
 
 
@@ -239,6 +247,10 @@ async def download(
     # Check expiry
     if _is_expired(metadata.get("expires_at")):
         raise HTTPException(status_code=410, detail="This link has expired.")
+
+    # Check if shared link has been revoked
+    if not metadata.get("link_enabled", True):
+        raise HTTPException(status_code=403, detail="This shared link has been revoked.")
 
     # Check access for private files
     if not metadata.get("public", True):
@@ -280,6 +292,30 @@ async def download(
             "Content-Length": str(len(file_content)),
         },
     )
+
+
+@router.patch("/{hash}/link")
+async def update_link(
+    hash: str,
+    body: _LinkPatchBody,
+    x_wallet_address: Optional[str] = Header(None, alias="X-Wallet-Address"),
+    x_wallet_signature: Optional[str] = Header(None, alias="X-Wallet-Signature"),
+    x_wallet_nonce: Optional[str] = Header(None, alias="X-Wallet-Nonce"),
+) -> dict:
+    """Enable or disable the shared link for a file (owner only)."""
+    address = _verify_auth(x_wallet_address, x_wallet_signature, x_wallet_nonce)
+
+    metadata = await get_metadata(hash)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    if metadata.get("uploader", "").lower() != address.lower():
+        raise HTTPException(status_code=403, detail="Only the file owner can update link settings.")
+
+    metadata["link_enabled"] = body.link_enabled
+    await store_metadata(hash, metadata)
+
+    return {"hash": hash, "link_enabled": body.link_enabled}
 
 
 @router.delete("/{hash}", response_model=FileDeleteResponse)
@@ -362,6 +398,7 @@ async def list_files(
             expires_at=item.get("expires_at"),
             password_protected=bool(item.get("password_hash")),
             is_expired=_is_expired(item.get("expires_at")),
+            link_enabled=item.get("link_enabled", True),
         )
         for item in items
     ]

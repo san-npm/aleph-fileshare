@@ -21,6 +21,7 @@ class FileMetadata(BaseModel):
     description: str = ""
     expires_at: Optional[str] = None
     password_hash: Optional[str] = None
+    link_enabled: bool = True
 
 
 class FileMetadataPublic(BaseModel):
@@ -39,6 +40,7 @@ class FileMetadataPublic(BaseModel):
     expires_at: Optional[str] = None
     password_protected: bool = False
     is_expired: bool = False
+    link_enabled: bool = True
 
 
 class FileUploadResponse(BaseModel):
@@ -66,6 +68,7 @@ class FileListItem(BaseModel):
     expires_at: Optional[str] = None
     password_protected: bool = False
     is_expired: bool = False
+    link_enabled: bool = True
 
 
 class FileListResponse(BaseModel):

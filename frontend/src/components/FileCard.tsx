@@ -15,6 +15,7 @@ import {
 interface FileCardProps {
   file: FileListItem;
   onDelete?: (hash: string) => void;
+  onToggleLink?: (hash: string, enabled: boolean) => Promise<void>;
   onGetAccessLog?: (hash: string) => Promise<AccessLogEntry[]>;
 }
 
@@ -41,7 +42,7 @@ const SCAN_BADGE: Record<string, { color: string; label: string; icon: string }>
   },
 };
 
-export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
+export function FileCard({ file, onDelete, onToggleLink, onGetAccessLog }: FileCardProps) {
   const [scanStatus, setScanStatus] = useState(file.scan_status);
   const [tags, setTags] = useState<string[]>(file.tags || []);
   const [copied, setCopied] = useState(false);
@@ -50,6 +51,8 @@ export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
   const [showAccessLog, setShowAccessLog] = useState(false);
   const [accessLog, setAccessLog] = useState<AccessLogEntry[]>([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [linkEnabled, setLinkEnabled] = useState(file.link_enabled ?? true);
+  const [isTogglingLink, setIsTogglingLink] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-refresh scan status every 5 seconds while pending
@@ -148,6 +151,17 @@ export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
     }
   };
 
+  const handleToggleLink = async () => {
+    if (!onToggleLink) return;
+    setIsTogglingLink(true);
+    try {
+      await onToggleLink(file.hash, !linkEnabled);
+      setLinkEnabled(!linkEnabled);
+    } finally {
+      setIsTogglingLink(false);
+    }
+  };
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-all duration-200 group">
       <div className="flex items-start justify-between mb-3">
@@ -181,6 +195,11 @@ export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
         {file.password_protected && (
           <span className="text-xs px-2 py-0.5 rounded-full border bg-aleph-blue/10 text-aleph-blue border-aleph-blue/20">
             Password
+          </span>
+        )}
+        {!linkEnabled && (
+          <span className="text-xs px-2 py-0.5 rounded-full border bg-red-900/50 text-red-300 border-red-800/50">
+            Link revoked
           </span>
         )}
       </div>
@@ -221,6 +240,20 @@ export function FileCard({ file, onDelete, onGetAccessLog }: FileCardProps) {
             title="Access Log"
           >
             {logLoading ? "..." : "📊"}
+          </button>
+        )}
+        {onToggleLink && (
+          <button
+            onClick={handleToggleLink}
+            disabled={isTogglingLink}
+            className={`py-2 px-3 text-sm rounded-lg transition-colors ${
+              linkEnabled
+                ? "bg-orange-900/30 hover:bg-orange-900/60 text-orange-300"
+                : "bg-green-900/30 hover:bg-green-900/60 text-green-300"
+            } ${isTogglingLink ? "opacity-50 cursor-not-allowed" : ""}`}
+            title={linkEnabled ? "Revoke link" : "Restore link"}
+          >
+            {isTogglingLink ? "..." : linkEnabled ? "🔗✕" : "🔗✓"}
           </button>
         )}
         {onDelete && (

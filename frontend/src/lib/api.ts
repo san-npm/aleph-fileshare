@@ -39,6 +39,7 @@ export interface FileMetadata {
   expires_at: string | null;
   password_protected: boolean;
   is_expired: boolean;
+  link_enabled: boolean;
 }
 
 export interface FileListItem {
@@ -51,6 +52,7 @@ export interface FileListItem {
   expires_at: string | null;
   password_protected: boolean;
   is_expired: boolean;
+  link_enabled: boolean;
 }
 
 export interface ScanStatusResponse {
@@ -191,6 +193,19 @@ export async function deleteFile(
     headers: authHeaders,
   });
   if (!res.ok) throw new Error("Failed to delete file");
+}
+
+export async function updateLink(
+  hash: string,
+  linkEnabled: boolean,
+  authHeaders: AuthHeaders
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/files/${hash}/link`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ link_enabled: linkEnabled }),
+  });
+  if (!res.ok) throw new Error("Failed to update link");
 }
 
 export async function getAccessLog(
