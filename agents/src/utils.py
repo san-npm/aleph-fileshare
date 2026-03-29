@@ -43,6 +43,16 @@ class Config:
         self.indexer_poll_interval: int = int(
             os.getenv("INDEXER_POLL_INTERVAL_SECONDS", "15")
         )
+        self.recommender_poll_interval: int = int(
+            os.getenv("RECOMMENDER_POLL_INTERVAL_SECONDS", "3600")
+        )
+        # How many cycles between weekly digest sends (1 cycle = poll_interval)
+        self.recommender_digest_interval: int = int(
+            os.getenv("RECOMMENDER_DIGEST_INTERVAL_CYCLES", "168")
+        )
+        self.guardian_poll_interval: int = int(
+            os.getenv("GUARDIAN_POLL_INTERVAL_SECONDS", "60")
+        )
         # Aleph mode settings
         self.virustotal_api_key: str = os.getenv("VIRUSTOTAL_API_KEY", "")
         self.libertai_api_url: str = os.getenv(

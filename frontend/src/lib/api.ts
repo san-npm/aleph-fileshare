@@ -219,6 +219,81 @@ export async function getAccessLog(
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Recommendations
+// ---------------------------------------------------------------------------
+
+export interface SimilarFileItem {
+  hash: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  tags: string[];
+  score: number;
+}
+
+export interface SimilarFilesResponse {
+  file_hash: string;
+  similar: SimilarFileItem[];
+  total: number;
+}
+
+export interface RecommendationItem {
+  hash: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  uploaded_at: string;
+  tags: string[];
+  score: number;
+  reason: string;
+}
+
+export interface PersonalisedRecommendationsResponse {
+  wallet_address: string;
+  recommendations: RecommendationItem[];
+  total: number;
+}
+
+export async function getSimilarFiles(
+  hash: string
+): Promise<SimilarFilesResponse> {
+  const res = await fetch(`${BASE_URL}/api/recommendations/similar/${hash}`);
+  if (!res.ok) return { file_hash: hash, similar: [], total: 0 };
+  return res.json();
+}
+
+export async function getPersonalisedRecommendations(
+  authHeaders: AuthHeaders,
+  limit: number = 10
+): Promise<PersonalisedRecommendationsResponse> {
+  const res = await fetch(
+    `${BASE_URL}/api/recommendations/for-you?limit=${limit}`,
+    { headers: authHeaders }
+  );
+  if (!res.ok) throw new Error("Failed to fetch recommendations");
+  return res.json();
+}
+
+export async function trackFileInteraction(
+  fileHash: string,
+  action: "view" | "download",
+  walletAddress?: string
+): Promise<void> {
+  const params = new URLSearchParams({ file_hash: fileHash, action });
+  const headers: Record<string, string> = {};
+  if (walletAddress) headers["X-Wallet-Address"] = walletAddress;
+  try {
+    await fetch(`${BASE_URL}/api/recommendations/track?${params}`, {
+      method: "POST",
+      headers,
+    });
+  } catch {
+    // Fire-and-forget
+  }
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;

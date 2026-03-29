@@ -12,6 +12,7 @@ import {
   FileMetadata,
 } from "@/lib/api";
 import { config } from "@/lib/config";
+import SimilarFiles from "@/components/SimilarFiles";
 
 const FILE_ICONS: Record<string, string> = {
   "image/": "🖼️",
@@ -203,7 +204,7 @@ export default function DownloadPage() {
   const needsPassword = metadata.password_protected;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12">
+    <div className="max-w-2xl mx-auto px-4 py-12 space-y-0">
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-br from-aleph-blue/10 to-aleph-purple/5 px-8 py-10 text-center border-b border-gray-800">
@@ -365,6 +366,9 @@ export default function DownloadPage() {
           </div>
         </div>
       </div>
+
+      {/* Similar Files sidebar — shown below the main card */}
+      <SimilarFiles fileHash={hash} />
     </div>
   );
 }

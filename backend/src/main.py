@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api import auth, files, health
+from src.api import auth, files, health, recommendations
 
 # Logging
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -87,6 +87,7 @@ async def rate_limit_middleware(request: Request, call_next) -> Response:
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(files.router)
+app.include_router(recommendations.router)
 
 
 

@@ -105,25 +105,25 @@ AlephFileShare aims to be the go-to decentralized alternative to WeTransfer and 
 
 ---
 
-## Phase 4 — Recommender & Guardian Agents 🛡️ *Q4 2026*
+## Phase 4 — Recommender & Guardian Agents ✅ *Complete*
 
 > **Goal**: Deploy the remaining two AI agents for personalization and network defense.
 
 ### Recommender Agent
-- [ ] Deploy on Aleph Cloud Persistent VM
-- [ ] Track user file interaction patterns (anonymized, stored on Aleph)
-- [ ] Collaborative filtering model for file recommendations
-- [ ] Expose recommendations via `/api/recommendations` endpoint
-- [ ] "Similar files" sidebar on download page
-- [ ] Weekly digest notifications via Aleph messaging
+- [x] Deploy on Aleph Cloud Persistent VM
+- [x] Track user file interaction patterns (anonymized, stored on Aleph)
+- [x] Collaborative filtering model for file recommendations
+- [x] Expose recommendations via `/api/recommendations` endpoint
+- [x] "Similar files" sidebar on download page
+- [x] Weekly digest notifications via Aleph messaging
 
 ### Guardian Agent
-- [ ] Deploy on Aleph Cloud Persistent VM
-- [ ] Monitor Aleph network node health
-- [ ] Detect unusual upload spikes (bot activity, DDOS patterns)
-- [ ] Auto-throttle abusive wallets via Aleph Aggregate flags
-- [ ] Health dashboard endpoint
-- [ ] Automated incident reports posted as Aleph messages
+- [x] Deploy on Aleph Cloud Persistent VM
+- [x] Monitor Aleph network node health
+- [x] Detect unusual upload spikes (bot activity, DDOS patterns)
+- [x] Auto-throttle abusive wallets via Aleph Aggregate flags
+- [x] Health dashboard endpoint (`/api/health/network`, `/api/health/incidents`, `/api/health/throttled`)
+- [x] Automated incident reports posted as Aleph messages
 
 **Deliverable**: The platform is self-managing — AI handles moderation, health, and personalization autonomously.
 
@@ -180,7 +180,7 @@ AlephFileShare aims to be the go-to decentralized alternative to WeTransfer and 
 | 1 | Core File Sharing MVP | Q2 2026 | 🔨 In Progress |
 | 2 | AI Scanner & Indexer | Q3 2026 | 📋 Planned |
 | 3 | Access Control & Privacy | Q3 2026 | 📋 Planned |
-| 4 | Recommender & Guardian | Q4 2026 | 📋 Planned |
+| 4 | Recommender & Guardian | Q4 2026 | ✅ Complete |
 | 5 | Collections & Collaboration | Q1 2027 | 📋 Planned |
 | 6 | Mobile & Advanced AI | Q2 2027 | 📋 Planned |
 | 7 | DAO Governance | Q3 2027 | 📋 Planned |
