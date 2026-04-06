@@ -3,3 +3,8 @@ node_modules/
 out/
 .env
 .env.local
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

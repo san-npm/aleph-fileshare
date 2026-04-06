@@ -8,11 +8,14 @@ Updates file metadata with tags and description.
 """
 
 import asyncio
+import json
 import logging
 import mimetypes
 import os
 from pathlib import Path
 from typing import Optional
+
+import httpx
 
 from agents.src.utils import Config, MetadataClient
 
@@ -226,30 +229,77 @@ class IndexerAgent:
         Requires LIBERTAI_API_URL and LLM_MODEL environment variables.
         Falls back to local indexing if LibertAI is unavailable.
         """
-        # Stub for LibertAI integration
-        # In production, this would:
-        # 1. Download the file content
-        # 2. Extract text/content based on MIME type
-        # 3. Send to LibertAI for analysis
-        #
-        # Example:
-        # from openai import OpenAI
-        # client = OpenAI(
-        #     base_url=f"{self.config.libertai_api_url}/v1",
-        #     api_key="libertai",
-        # )
-        # response = client.chat.completions.create(
-        #     model=self.config.llm_model,
-        #     messages=[{
-        #         "role": "user",
-        #         "content": (
-        #             f"Generate 5 descriptive tags and a one-sentence description "
-        #             f"for this file: {file_meta.get('filename')}\n"
-        #             f"MIME type: {file_meta.get('mime_type')}\n"
-        #             f"Respond in JSON: {{\"tags\": [...], \"description\": \"...\"}}"
-        #         ),
-        #     }],
-        # )
+        api_url = self.config.libertai_api_url
+        model = self.config.llm_model
 
-        logger.info("LibertAI integration not yet active — falling back to local indexing")
-        return await self._index_local(file_hash, file_meta)
+        if not api_url:
+            logger.info("LIBERTAI_API_URL not set — falling back to local indexing")
+            return await self._index_local(file_hash, file_meta)
+
+        filename = file_meta.get("filename", "unknown")
+        mime_type = file_meta.get("mime_type", "application/octet-stream")
+        size_bytes = file_meta.get("size_bytes", 0)
+
+        prompt = (
+            f"Analyze this file and respond with ONLY valid JSON (no markdown, no explanation).\n"
+            f"Filename: {filename}\n"
+            f"MIME type: {mime_type}\n"
+            f"Size: {size_bytes} bytes\n\n"
+            f"Generate 3-7 descriptive tags and a one-sentence description.\n"
+            f'Format: {{"tags": ["tag1", "tag2", ...], "description": "One sentence description."}}'
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{api_url}/v1/chat/completions",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 200,
+                    },
+                )
+
+            if response.status_code != 200:
+                logger.warning(f"LibertAI API error: {response.status_code} — falling back to local")
+                return await self._index_local(file_hash, file_meta)
+
+            data = response.json()
+            content = data["choices"][0]["message"]["content"].strip()
+
+            # Parse JSON response — handle potential markdown wrapping
+            if content.startswith("```"):
+                content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+            result = json.loads(content)
+            tags = result.get("tags", [])
+            description = result.get("description", "")
+
+            # Validate
+            if not isinstance(tags, list) or not tags:
+                raise ValueError("Invalid tags from LLM")
+
+            # Sanitize tags: lowercase, alphanumeric + hyphens only, max 20 chars
+            clean_tags = []
+            for tag in tags[:10]:
+                clean = "".join(c for c in str(tag).lower() if c.isalnum() or c == "-")[:20]
+                if clean:
+                    clean_tags.append(clean)
+
+            if not clean_tags:
+                raise ValueError("No valid tags after sanitization")
+
+            logger.info(f"LibertAI tagged {filename}: {clean_tags}")
+            return {
+                "tags": clean_tags,
+                "description": str(description)[:500],
+            }
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning(f"Failed to parse LibertAI response: {e} — falling back to local")
+            return await self._index_local(file_hash, file_meta)
+        except Exception as e:
+            logger.error(f"LibertAI request failed: {e} — falling back to local")
+            return await self._index_local(file_hash, file_meta)
