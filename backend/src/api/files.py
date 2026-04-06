@@ -3,13 +3,21 @@
 import json
 import os
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import bcrypt
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import Response
 
 from pydantic import BaseModel as _BaseModel
@@ -94,7 +102,9 @@ def _record_password_failure(file_hash: str, client_ip: str) -> None:
             pass
 
     try:
-        path.write_text(json.dumps({"attempts": attempts + 1, "last_attempt": time.time()}))
+        path.write_text(
+            json.dumps({"attempts": attempts + 1, "last_attempt": time.time()})
+        )
     except OSError:
         pass
 
@@ -104,6 +114,8 @@ def _clear_password_attempts(file_hash: str, client_ip: str) -> None:
     safe_key = f"{file_hash}_{client_ip.replace(':', '_').replace('.', '_')}"
     path = _pw_attempts_dir() / f"{safe_key}.json"
     path.unlink(missing_ok=True)
+
+
 ALLOWED_MIME_TYPES_STR = os.getenv("ALLOWED_MIME_TYPES", "")
 ALLOWED_MIME_TYPES: set[str] = (
     set(ALLOWED_MIME_TYPES_STR.split(",")) if ALLOWED_MIME_TYPES_STR else set()
@@ -198,7 +210,9 @@ async def upload(
     # Hash password if provided
     pw_hash: Optional[str] = None
     if password:
-        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
+            "utf-8"
+        )
 
     # Build metadata
     uploaded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -271,7 +285,9 @@ async def get_file_metadata(
         if not verify_signature(x_wallet_address, x_wallet_signature, x_wallet_nonce):
             raise HTTPException(status_code=403, detail="File is private.")
         if x_wallet_address.lower() != metadata.get("uploader", "").lower():
-            raise HTTPException(status_code=403, detail="File is private and you are not the owner.")
+            raise HTTPException(
+                status_code=403, detail="File is private and you are not the owner."
+            )
 
     # Log view access
     actor = x_wallet_address or "anonymous"
@@ -316,7 +332,9 @@ async def download(
 
     # Check if shared link has been revoked
     if not metadata.get("link_enabled", True):
-        raise HTTPException(status_code=403, detail="This shared link has been revoked.")
+        raise HTTPException(
+            status_code=403, detail="This shared link has been revoked."
+        )
 
     # Check access for private files
     if not metadata.get("public", True):
@@ -325,7 +343,9 @@ async def download(
         if not verify_signature(x_wallet_address, x_wallet_signature, x_wallet_nonce):
             raise HTTPException(status_code=403, detail="File is private.")
         if x_wallet_address.lower() != metadata.get("uploader", "").lower():
-            raise HTTPException(status_code=403, detail="File is private and you are not the owner.")
+            raise HTTPException(
+                status_code=403, detail="File is private and you are not the owner."
+            )
 
     # Check password (with brute-force protection)
     stored_hash = metadata.get("password_hash")
@@ -335,7 +355,9 @@ async def download(
 
         if not x_download_password:
             raise HTTPException(status_code=401, detail="Password required.")
-        if not bcrypt.checkpw(x_download_password.encode("utf-8"), stored_hash.encode("utf-8")):
+        if not bcrypt.checkpw(
+            x_download_password.encode("utf-8"), stored_hash.encode("utf-8")
+        ):
             _record_password_failure(hash, ip)
             raise HTTPException(status_code=401, detail="Invalid password.")
 
@@ -343,7 +365,9 @@ async def download(
 
     # Check scan status
     if metadata.get("scan_status") == "flagged":
-        raise HTTPException(status_code=451, detail="File has been flagged and is unavailable.")
+        raise HTTPException(
+            status_code=451, detail="File has been flagged and is unavailable."
+        )
 
     file_content = await download_file(hash)
     if not file_content:
@@ -382,7 +406,9 @@ async def update_link(
         raise HTTPException(status_code=404, detail="File not found.")
 
     if metadata.get("uploader", "").lower() != address.lower():
-        raise HTTPException(status_code=403, detail="Only the file owner can update link settings.")
+        raise HTTPException(
+            status_code=403, detail="Only the file owner can update link settings."
+        )
 
     metadata["link_enabled"] = body.link_enabled
     await store_metadata(hash, metadata)
@@ -435,7 +461,9 @@ async def file_access_log(
         raise HTTPException(status_code=404, detail="File not found.")
 
     if metadata.get("uploader", "").lower() != address.lower():
-        raise HTTPException(status_code=403, detail="Only the file owner can view access logs.")
+        raise HTTPException(
+            status_code=403, detail="Only the file owner can view access logs."
+        )
 
     entries = await get_access_log(hash, limit=50)
     return [AccessLogEntry(**entry) for entry in entries]
@@ -455,7 +483,9 @@ async def list_files(
 
     valid_sorts = {"uploaded_at_asc", "uploaded_at_desc", "size_asc", "size_desc"}
     if sort not in valid_sorts:
-        raise HTTPException(status_code=400, detail=f"Invalid sort. Use one of: {valid_sorts}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid sort. Use one of: {valid_sorts}"
+        )
 
     items, total = await list_metadata(address, limit, offset, sort)
 

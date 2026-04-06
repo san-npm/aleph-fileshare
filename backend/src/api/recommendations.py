@@ -154,7 +154,8 @@ async def _fallback_popular(limit: int) -> list[dict]:
         return []
 
     items = [
-        v for v in db.values()
+        v
+        for v in db.values()
         if v.get("public", True) and v.get("scan_status") != "flagged"
     ]
     # Sort by most recently uploaded
@@ -272,7 +273,10 @@ async def get_personalised_recommendations(
     # Fallback to popular files for users with no history
     if not recs:
         popular = await _fallback_popular(limit)
-        recs = [RecommendationItem(**{**p, "reason": p.get("reason", "popular")}) for p in popular]
+        recs = [
+            RecommendationItem(**{**p, "reason": p.get("reason", "popular")})
+            for p in popular
+        ]
 
     return PersonalisedRecommendationsResponse(
         wallet_address=x_wallet_address,

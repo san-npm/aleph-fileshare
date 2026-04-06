@@ -64,6 +64,7 @@ async def delete_file(file_hash: str) -> bool:
 
 # --- Aleph Mode ---
 
+
 async def _upload_aleph(file_content: bytes, filename: str) -> str:
     """Upload to IPFS via aleph-sdk-python."""
     try:
@@ -126,6 +127,7 @@ async def _delete_aleph(file_hash: str) -> bool:
 
 
 # --- Local Mode ---
+
 
 async def _upload_local(file_content: bytes, filename: str) -> str:
     """Store file locally and return sha256 hash."""

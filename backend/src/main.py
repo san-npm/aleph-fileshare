@@ -33,7 +33,9 @@ async def lifespan(app: FastAPI):
     if storage_mode == "aleph":
         challenge_secret = os.getenv("CHALLENGE_SECRET", "")
         if not challenge_secret or len(challenge_secret) < 32:
-            logger.error("CHALLENGE_SECRET must be set to a 32+ char string in production")
+            logger.error(
+                "CHALLENGE_SECRET must be set to a 32+ char string in production"
+            )
             raise RuntimeError("CHALLENGE_SECRET not configured for production")
         if not os.getenv("ALEPH_PRIVATE_KEY"):
             logger.warning("ALEPH_PRIVATE_KEY not set — Aleph storage will fail")
@@ -142,7 +144,9 @@ async def security_headers_middleware(request: Request, call_next) -> Response:
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     if os.getenv("STORAGE_MODE") == "aleph":
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
     return response
 
 
@@ -151,4 +155,3 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(files.router)
 app.include_router(recommendations.router)
-

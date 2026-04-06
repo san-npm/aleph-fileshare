@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-
 logger = logging.getLogger(__name__)
 
 STORAGE_MODE = os.getenv("STORAGE_MODE", "local")
@@ -83,6 +82,7 @@ async def list_metadata(
 
 # --- Aleph Mode ---
 
+
 async def _store_aleph(key: str, content: dict[str, Any]) -> None:
     """Store metadata as Aleph Aggregate."""
     try:
@@ -117,6 +117,7 @@ async def _get_aleph(key: str) -> Optional[dict[str, Any]]:
         private_key = os.getenv("ALEPH_PRIVATE_KEY", "")
 
         from aleph.sdk.chains.ethereum import ETHAccount
+
         account = ETHAccount(private_key=private_key)
 
         async with AlephHttpClient(api_server=api_server) as client:
@@ -147,7 +148,9 @@ async def _delete_aleph(key: str) -> bool:
 
         item_hash = metadata.get("aleph_item_hash")
         if not item_hash:
-            logger.warning(f"Cannot delete — no aleph_item_hash in metadata for key: {key}")
+            logger.warning(
+                f"Cannot delete — no aleph_item_hash in metadata for key: {key}"
+            )
             return False
 
         account = ETHAccount(private_key=private_key)
@@ -211,6 +214,7 @@ async def _list_aleph(
 
 # --- Local Mode ---
 
+
 def _load_local_db() -> dict[str, Any]:
     """Load the local JSON metadata store."""
     if LOCAL_META_FILE.exists():
@@ -258,7 +262,9 @@ async def _list_local(
     db = _load_local_db()
 
     # Filter by uploader
-    items = [v for v in db.values() if v.get("uploader", "").lower() == uploader.lower()]
+    items = [
+        v for v in db.values() if v.get("uploader", "").lower() == uploader.lower()
+    ]
 
     # Sort
     reverse = sort.endswith("_desc")

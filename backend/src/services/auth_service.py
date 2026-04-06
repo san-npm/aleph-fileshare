@@ -80,9 +80,7 @@ def generate_nonce(address: str) -> dict:
     }
 
 
-def verify_signature(
-    address: str, signature: str, nonce: str
-) -> bool:
+def verify_signature(address: str, signature: str, nonce: str) -> bool:
     """Verify an EVM wallet signature against a stateless challenge token.
 
     Validates:
