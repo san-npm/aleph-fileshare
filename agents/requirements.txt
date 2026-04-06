@@ -10,8 +10,5 @@ aiofiles==24.1.0
 # Environment variables
 python-dotenv==1.0.1
 
-# Aleph Cloud SDK (only needed in aleph mode)
-# aleph-sdk-python==1.1.0
-
-# AI integration (only needed in aleph mode)
-# openai==1.30.0
+# Aleph Cloud SDK (needed for aleph mode)
+aleph-sdk-python==1.1.0

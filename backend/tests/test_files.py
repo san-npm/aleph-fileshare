@@ -30,12 +30,15 @@ def mock_auth():
 
 
 @pytest.fixture(autouse=True)
-def clear_rate_limit():
-    """Clear the in-memory rate limiter between tests."""
-    from src.main import _rate_limit_store
-    _rate_limit_store.clear()
-    yield
-    _rate_limit_store.clear()
+def clear_rate_limit(tmp_path):
+    """Clear the file-backed rate limiter between tests."""
+    rate_dir = tmp_path / "rate_limits"
+    with patch.dict(os.environ, {"LOCAL_DATA_DIR": str(tmp_path)}):
+        yield
+        # Clean up rate limit files
+        if rate_dir.exists():
+            import shutil
+            shutil.rmtree(rate_dir, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -482,7 +485,7 @@ def test_access_log_records_delete():
     # But the endpoint requires the file to exist, so we check the service directly
     from src.services.access_log import get_access_log
     import asyncio
-    entries = asyncio.get_event_loop().run_until_complete(get_access_log(file_hash))
+    entries = asyncio.run(get_access_log(file_hash))
     actions = [e["action"] for e in entries]
     assert "delete" in actions
 

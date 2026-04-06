@@ -61,6 +61,7 @@ async def get_access_log(file_hash: str, limit: int = 50) -> list[dict[str, Any]
 
 # --- Aleph Mode ---
 
+
 async def _log_aleph(entry: dict[str, Any]) -> None:
     """Post access log entry as an Aleph POST message."""
     try:
@@ -116,12 +117,15 @@ async def _get_log_aleph(file_hash: str, limit: int) -> list[dict[str, Any]]:
 
 # --- Local Mode ---
 
+
 async def _log_local(entry: dict[str, Any]) -> None:
     """Append access log entry to local JSONL file."""
     LOCAL_ACCESS_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(LOCAL_ACCESS_LOG, "a") as f:
         f.write(json.dumps(entry) + "\n")
-    logger.debug(f"Access log: {entry['action']} on {entry['file_hash']} by {entry['actor']}")
+    logger.debug(
+        f"Access log: {entry['action']} on {entry['file_hash']} by {entry['actor']}"
+    )
 
 
 async def _get_log_local(file_hash: str, limit: int) -> list[dict[str, Any]]:

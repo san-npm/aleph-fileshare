@@ -126,6 +126,12 @@ class ScannerAgent:
         """Aleph mode scan: check against VirusTotal API.
 
         Requires VIRUSTOTAL_API_KEY environment variable.
+        Flow:
+        1. Check if hash is already known on VirusTotal
+        2. If known, return verdict immediately
+        3. If unknown and file is small enough (<32MB VT limit), submit for analysis
+        4. Poll for results (up to 5 minutes)
+        5. If still no result, mark as clean (low risk for unknown files)
         """
         if not self.config.virustotal_api_key:
             logger.warning(
@@ -133,18 +139,67 @@ class ScannerAgent:
             )
             return "clean"
 
-        # Stub: VirusTotal integration
-        # In production, this would:
-        # 1. Query VirusTotal with the file hash
-        # 2. If no result, submit file for analysis
-        # 3. Poll for results
-        # 4. Return verdict based on detection count
+        # Step 1: Check existing hash
         vt_result = await self._check_virustotal(file_hash)
         if vt_result is not None:
             return vt_result
 
-        logger.info(f"File {file_hash[:12]}... not found on VirusTotal — marking clean")
+        # Step 2: Hash not found — try to submit the file for analysis
+        logger.info(f"File {file_hash[:12]}... not found on VirusTotal — attempting upload")
+        size_bytes = file_meta.get("size_bytes", 0)
+        vt_max_size = 32 * 1024 * 1024  # 32MB VirusTotal limit for standard uploads
+
+        if size_bytes > vt_max_size:
+            logger.info(f"File too large for VT upload ({size_bytes} bytes) — marking clean")
+            return "clean"
+
+        submitted = await self._submit_to_virustotal(file_hash)
+        if not submitted:
+            logger.info(f"Could not submit {file_hash[:12]}... to VT — marking clean")
+            return "clean"
+
+        # Step 3: Poll for results (max 5 minutes, 30s intervals)
+        for attempt in range(10):
+            await asyncio.sleep(30)
+            vt_result = await self._check_virustotal(file_hash)
+            if vt_result is not None:
+                return vt_result
+            logger.debug(f"VT poll {attempt + 1}/10 — still pending for {file_hash[:12]}...")
+
+        logger.info(f"VT analysis timed out for {file_hash[:12]}... — marking clean")
         return "clean"
+
+    async def _submit_to_virustotal(self, file_hash: str) -> bool:
+        """Submit a file to VirusTotal for analysis via its Aleph IPFS URL.
+
+        Uses the URL-based submission endpoint to avoid downloading the file locally.
+
+        Returns:
+            True if submission was accepted.
+        """
+        api_key = os.getenv("VIRUSTOTAL_API_KEY", "")
+        if not api_key:
+            return False
+
+        # Submit via URL (file is on IPFS)
+        aleph_url = f"https://api2.aleph.im/api/v0/storage/raw/{file_hash}"
+        url = "https://www.virustotal.com/api/v3/urls"
+        headers = {"x-apikey": api_key}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    url, headers=headers, data={"url": aleph_url}
+                )
+            if response.status_code == 200:
+                logger.info(f"Submitted {file_hash[:12]}... to VirusTotal for URL scan")
+                return True
+            else:
+                logger.warning(f"VT URL submission failed: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"VT submission error: {e}")
+            return False
 
     async def _check_virustotal(self, file_hash: str) -> Optional[str]:
         """Check file hash against VirusTotal database.

@@ -385,27 +385,62 @@ class GuardianAgent:
     async def _write_aleph_throttle_flag(
         self, wallet: str, throttle_data: dict
     ) -> None:
-        """Write throttle flag to Aleph Aggregates (stub for Aleph mode)."""
-        # In production:
-        # from aleph.sdk.chains.ethereum import ETHAccount
-        # from aleph.sdk.client import AlephClient
-        # account = ETHAccount(private_key=os.getenv("ALEPH_PRIVATE_KEY"))
-        # async with AlephClient() as client:
-        #     await client.create_aggregate(
-        #         key=f"throttle:{wallet}",
-        #         content=throttle_data,
-        #         channel="ALEPH_FILESHARE_GUARDIAN",
-        #         account=account,
-        #     )
-        logger.info(
-            f"[Aleph stub] Would write throttle aggregate for {wallet[:10]}..."
-        )
+        """Write throttle flag to Aleph Aggregates."""
+        private_key = os.getenv("ALEPH_PRIVATE_KEY", "")
+        if not private_key:
+            logger.warning("[Aleph] ALEPH_PRIVATE_KEY not set — skipping throttle write")
+            return
+
+        try:
+            from aleph.sdk.chains.ethereum import ETHAccount
+            from aleph.sdk.client import AuthenticatedAlephHttpClient
+
+            account = ETHAccount(private_key=private_key)
+            channel = os.getenv("ALEPH_CHANNEL", "ALEPH_FILESHARE")
+
+            async with AuthenticatedAlephHttpClient(
+                account=account,
+                api_server=os.getenv("ALEPH_API_SERVER", "https://api1.aleph.im"),
+            ) as client:
+                await client.create_aggregate(
+                    key=f"throttle:{wallet}",
+                    content=throttle_data,
+                    channel=channel,
+                )
+            logger.info(f"[Aleph] Wrote throttle aggregate for {wallet[:10]}...")
+        except ImportError:
+            logger.warning("[Aleph] aleph-sdk-python not installed — skipping throttle write")
+        except Exception as e:
+            logger.error(f"[Aleph] Failed to write throttle flag: {e}")
 
     async def _post_aleph_message(self, payload: dict) -> None:
-        """Post a message to Aleph network (stub for Aleph mode)."""
-        logger.info(
-            f"[Aleph stub] Would post message: type={payload.get('type')}"
-        )
+        """Post a message to Aleph network."""
+        private_key = os.getenv("ALEPH_PRIVATE_KEY", "")
+        if not private_key:
+            logger.warning("[Aleph] ALEPH_PRIVATE_KEY not set — skipping POST message")
+            return
+
+        try:
+            from aleph.sdk.chains.ethereum import ETHAccount
+            from aleph.sdk.client import AuthenticatedAlephHttpClient
+
+            account = ETHAccount(private_key=private_key)
+            channel = os.getenv("ALEPH_CHANNEL", "ALEPH_FILESHARE")
+
+            async with AuthenticatedAlephHttpClient(
+                account=account,
+                api_server=os.getenv("ALEPH_API_SERVER", "https://api1.aleph.im"),
+            ) as client:
+                await client.create_post(
+                    post_content=payload,
+                    post_type="aleph-fileshare:guardian",
+                    channel=channel,
+                )
+            logger.info(f"[Aleph] Posted message: type={payload.get('type')}")
+        except ImportError:
+            logger.warning("[Aleph] aleph-sdk-python not installed — skipping POST")
+        except Exception as e:
+            logger.error(f"[Aleph] Failed to post message: {e}")
 
     # ------------------------------------------------------------------
     # Throttle management
